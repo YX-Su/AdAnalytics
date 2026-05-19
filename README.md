@@ -2,7 +2,7 @@
 
 模拟互联网广告投放平台的完整数据链路，从前端埋点到数仓分层到可视化报表。
 
-🔗 **在线演示**：https://你的用户名.github.io/ad-analytics/
+🔗 **在线演示**：https://yx-su.github.io/AdAnalytics/
 
 ## 技术栈
 
