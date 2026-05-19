@@ -1,0 +1,1641 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>广告点击实时分析系统</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Space+Mono:wght@400;700&family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #060c12;
+  --surface: #0b1825;
+  --surface2: #0f2030;
+  --border: #1a3a5c;
+  --border2: #0f2540;
+  --accent: #00d4ff;
+  --accent3: #39ff14;
+  --accent4: #bf5fff;
+  --text: #c8e6f5;
+  --text-dim: #4a7a9a;
+  --kafka: #ff6b35;
+  --spark: #ffd700;
+  --storage: #39ff14;
+  --viz: #bf5fff;
+  --data: #00d4ff;
+  --ad1: #ff6b6b; --ad2: #ffa94d; --ad3: #69db7c;
+  --ad4: #74c0fc; --ad5: #da77f2;
+  --noad: #2a3a4a;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Space Mono', monospace;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  height: 100vh;
+}
+
+/* ── Top bar ── */
+.topbar {
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(90deg, rgba(0,212,255,0.06), transparent);
+  flex-shrink: 0;
+  gap: 12px;
+}
+.topbar-title { font-family:'Orbitron',monospace; font-size:15px; font-weight:900; color:var(--accent); text-shadow:0 0 16px rgba(0,212,255,0.5); letter-spacing:2px; }
+.topbar-sub { font-size:10px; color:var(--text-dim); font-family:'Noto Sans SC',sans-serif; margin-top:2px; }
+
+/* User control strip */
+.user-strip {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 14px;
+}
+.user-label { font-size:10px; color:var(--text-dim); font-family:'Noto Sans SC',sans-serif; }
+.user-id-display {
+  font-family:'Orbitron',monospace;
+  font-size:13px;
+  font-weight:700;
+  color:var(--accent);
+  min-width:80px;
+  transition: color 0.2s;
+}
+.user-id-display.flash { color:var(--spark); }
+.switch-btn {
+  font-family:'Space Mono',monospace;
+  font-size:10px;
+  padding:5px 10px;
+  border-radius:5px;
+  border:1px solid var(--border);
+  background:var(--surface);
+  color:var(--text-dim);
+  cursor:pointer;
+  transition:all 0.2s;
+}
+.switch-btn:hover { border-color:var(--accent); color:var(--accent); }
+
+.toggle-wrap { display:flex; align-items:center; gap:7px; font-size:10px; color:var(--text-dim); font-family:'Noto Sans SC',sans-serif; }
+.toggle { position:relative; width:34px; height:18px; cursor:pointer; }
+.toggle input { opacity:0; width:0; height:0; }
+.toggle-slider {
+  position:absolute; inset:0;
+  background:var(--border2);
+  border-radius:18px;
+  border:1px solid var(--border);
+  transition:background 0.3s;
+}
+.toggle-slider::before {
+  content:'';
+  position:absolute;
+  width:12px; height:12px;
+  left:2px; top:2px;
+  background:var(--text-dim);
+  border-radius:50%;
+  transition:all 0.3s;
+}
+.toggle input:checked + .toggle-slider { background:rgba(57,255,20,0.2); border-color:var(--accent3); }
+.toggle input:checked + .toggle-slider::before { transform:translateX(16px); background:var(--accent3); box-shadow:0 0 6px var(--accent3); }
+
+/* ── Main layout ── */
+.workspace {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  gap: 0;
+}
+
+/* ── LEFT: Phone simulator ── */
+.sim-panel {
+  width: 320px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px 16px;
+  gap: 14px;
+  overflow-y: auto;
+}
+
+.sim-label {
+  font-family:'Orbitron',monospace;
+  font-size:9px;
+  color:var(--text-dim);
+  letter-spacing:2px;
+  align-self:flex-start;
+}
+
+/* Phone shell */
+.phone-shell {
+  width: 260px;
+  height: 520px;
+  background: #0a0a0f;
+  border-radius: 36px;
+  border: 3px solid #2a3a4a;
+  box-shadow: 0 0 0 1px #1a2a3a, 0 20px 60px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.05);
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+/* notch */
+.phone-notch {
+  position:absolute; top:0; left:50%; transform:translateX(-50%);
+  width:80px; height:24px;
+  background:#0a0a0f;
+  border-radius:0 0 14px 14px;
+  z-index:10;
+  border-bottom: 1px solid #1a2a3a;
+}
+
+/* Status bar */
+.phone-status {
+  position:absolute; top:0; left:0; right:0; height:24px;
+  display:flex; align-items:center; justify-content:space-between;
+  padding:0 20px;
+  font-size:9px;
+  color:rgba(255,255,255,0.5);
+  z-index:9;
+  font-family:'Space Mono',monospace;
+}
+
+/* Feed viewport */
+.feed-viewport {
+  position:absolute;
+  top:24px; bottom:0; left:0; right:0;
+  overflow:hidden;
+  cursor:grab;
+}
+.feed-viewport:active { cursor:grabbing; }
+
+.feed-track {
+  display:flex;
+  flex-direction:column;
+  transition:transform 0.35s cubic-bezier(0.25,0.46,0.45,0.94);
+  will-change:transform;
+}
+
+/* Feed card */
+.feed-card {
+  width:100%;
+  height:496px; /* phone height - status bar */
+  flex-shrink:0;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:12px;
+  position:relative;
+  user-select:none;
+  transition:filter 0.2s;
+}
+
+.feed-card:active { filter:brightness(0.85); }
+
+/* No-ad card */
+.feed-card.noad {
+  background: linear-gradient(160deg, #0d1a24, #0a1218);
+}
+
+/* Ad card */
+.feed-card.ad {
+  cursor:pointer;
+}
+
+.card-badge {
+  position:absolute;
+  top:16px; right:16px;
+  font-size:9px;
+  padding:3px 8px;
+  border-radius:4px;
+  font-family:'Orbitron',monospace;
+  font-weight:700;
+  letter-spacing:1px;
+}
+
+.card-box {
+  width:180px; height:180px;
+  border-radius:16px;
+  border:2px solid;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  transition:transform 0.15s, box-shadow 0.15s;
+  position:relative;
+  overflow:hidden;
+}
+
+.feed-card.ad:active .card-box {
+  transform:scale(0.95);
+}
+
+.card-box::before {
+  content:'';
+  position:absolute;
+  inset:0;
+  opacity:0.08;
+}
+
+.card-title {
+  font-family:'Orbitron',monospace;
+  font-size:18px;
+  font-weight:900;
+  letter-spacing:1px;
+}
+
+.card-sub {
+  font-size:10px;
+  font-family:'Noto Sans SC',sans-serif;
+  opacity:0.6;
+}
+
+/* Tap ripple */
+.ripple {
+  position:absolute;
+  border-radius:50%;
+  width:60px; height:60px;
+  margin:-30px;
+  background:rgba(255,255,255,0.25);
+  animation:rippleAnim 0.5s ease-out forwards;
+  pointer-events:none;
+}
+@keyframes rippleAnim {
+  from { transform:scale(0); opacity:1; }
+  to   { transform:scale(4); opacity:0; }
+}
+
+/* Click indicator */
+.click-toast {
+  position:absolute;
+  bottom:60px;
+  left:50%;
+  transform:translateX(-50%);
+  background:rgba(57,255,20,0.9);
+  color:#000;
+  font-size:10px;
+  font-family:'Orbitron',monospace;
+  font-weight:700;
+  padding:5px 12px;
+  border-radius:20px;
+  opacity:0;
+  pointer-events:none;
+  white-space:nowrap;
+  z-index:20;
+}
+.click-toast.show {
+  animation:toastAnim 1.2s ease forwards;
+}
+@keyframes toastAnim {
+  0%   { opacity:0; transform:translateX(-50%) translateY(0); }
+  15%  { opacity:1; transform:translateX(-50%) translateY(-8px); }
+  70%  { opacity:1; transform:translateX(-50%) translateY(-8px); }
+  100% { opacity:0; transform:translateX(-50%) translateY(-20px); }
+}
+
+/* Scroll hint */
+.scroll-hint {
+  position:absolute;
+  bottom:16px;
+  left:50%;
+  transform:translateX(-50%);
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:3px;
+  opacity:0.3;
+  animation:bounce 2s infinite;
+}
+@keyframes bounce { 0%,100%{transform:translateX(-50%) translateY(0)} 50%{transform:translateX(-50%) translateY(-4px)} }
+.scroll-hint span { font-size:8px; color:var(--text-dim); font-family:'Noto Sans SC',sans-serif; }
+
+/* Swipe indicator */
+.swipe-event {
+  position:absolute;
+  top:50%;
+  left:50%;
+  transform:translate(-50%,-50%);
+  font-size:28px;
+  opacity:0;
+  pointer-events:none;
+  z-index:20;
+}
+.swipe-event.show { animation:swipeFlash 0.5s forwards; }
+@keyframes swipeFlash { 0%{opacity:0.8;transform:translate(-50%,-50%) scale(1)} 100%{opacity:0;transform:translate(-50%,-80%) scale(1.5)} }
+
+/* Sim stats strip */
+.sim-stats {
+  width:260px;
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:8px;
+}
+.sim-stat {
+  background:var(--bg);
+  border:1px solid var(--border);
+  border-radius:8px;
+  padding:8px 10px;
+  text-align:center;
+}
+.sim-stat-val {
+  font-family:'Orbitron',monospace;
+  font-size:16px;
+  font-weight:700;
+}
+.sim-stat-label {
+  font-size:9px;
+  color:var(--text-dim);
+  font-family:'Noto Sans SC',sans-serif;
+  margin-top:2px;
+}
+
+/* ── RIGHT: Dashboard ── */
+.dashboard {
+  flex:1;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+
+/* Kafka log strip */
+.kafka-strip {
+  background:var(--surface);
+  border-bottom:1px solid var(--border);
+  padding:8px 16px;
+  height:90px;
+  overflow:hidden;
+  flex-shrink:0;
+  position:relative;
+}
+.kafka-strip::before {
+  content:'';
+  position:absolute;
+  top:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,var(--kafka),transparent);
+}
+.kafka-strip-title {
+  font-family:'Orbitron',monospace;
+  font-size:9px;
+  color:var(--kafka);
+  letter-spacing:1px;
+  margin-bottom:5px;
+}
+.kafka-log-inner { font-size:10px; line-height:1.7; overflow:hidden; height:60px; }
+.klog { opacity:0; transform:translateX(-6px); animation:kin .2s forwards; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+@keyframes kin { to{opacity:1;transform:translateX(0)} }
+
+/* Metrics grid */
+.metrics-grid {
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:10px;
+  padding:12px 16px;
+  flex-shrink:0;
+  border-bottom:1px solid var(--border);
+}
+.metric {
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:8px;
+  padding:10px 12px;
+  position:relative;
+  overflow:hidden;
+}
+.metric::before { content:''; position:absolute; top:0;left:0;right:0;height:2px; }
+.metric.m-pv::before   { background:linear-gradient(90deg,var(--data),transparent); }
+.metric.m-uv::before   { background:linear-gradient(90deg,var(--accent4),transparent); }
+.metric.m-ctr::before  { background:linear-gradient(90deg,var(--spark),transparent); }
+.metric.m-imp::before  { background:linear-gradient(90deg,var(--storage),transparent); }
+.metric-label { font-size:9px; color:var(--text-dim); font-family:'Noto Sans SC',sans-serif; margin-bottom:4px; }
+.metric-val { font-family:'Orbitron',monospace; font-size:20px; font-weight:900; line-height:1; }
+.metric-sub { font-size:9px; color:var(--text-dim); margin-top:3px; }
+.metric-bar { height:2px; border-radius:1px; margin-top:6px; background:var(--border); overflow:hidden; }
+.metric-bar-fill { height:100%; border-radius:1px; transition:width .8s ease; width:0%; }
+
+/* Bottom charts row */
+.charts-row {
+  flex:1;
+  display:grid;
+  grid-template-columns:1fr 1fr 1fr;
+  gap:10px;
+  padding:10px 16px 12px;
+  overflow:hidden;
+  min-height:0;
+}
+.chart-card {
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:10px;
+  padding:12px;
+  display:flex;
+  flex-direction:column;
+  position:relative;
+  overflow:hidden;
+  min-height:0;
+}
+.chart-card::before { content:''; position:absolute; top:0;left:0;right:0;height:2px; }
+.chart-card.cc-ctr::before   { background:linear-gradient(90deg,var(--spark),transparent); }
+.chart-card.cc-top::before   { background:linear-gradient(90deg,var(--viz),transparent); }
+.chart-card.cc-dev::before   { background:linear-gradient(90deg,var(--data),transparent); }
+.chart-title {
+  font-family:'Orbitron',monospace;
+  font-size:9px;
+  font-weight:700;
+  letter-spacing:1px;
+  margin-bottom:8px;
+  display:flex;
+  align-items:center;
+  gap:6px;
+  flex-shrink:0;
+}
+.dot6 { width:6px;height:6px;border-radius:50%; }
+canvas { flex:1; min-height:0; }
+
+/* Top ads */
+.ad-rows { flex:1; display:flex; flex-direction:column; justify-content:space-around; }
+.adrow { display:flex; align-items:center; gap:6px; font-size:10px; }
+.adrow-rank { font-family:'Orbitron',monospace; font-size:8px; color:var(--text-dim); width:18px; text-align:center; }
+.adrow-rank.gold { color:var(--spark); }
+.adrow-id { font-weight:700; width:52px; font-size:10px; }
+.adrow-bar-wrap { flex:1; height:6px; background:var(--border); border-radius:3px; overflow:hidden; }
+.adrow-bar { height:100%; border-radius:3px; transition:width .8s ease; }
+.adrow-n { font-size:9px; color:var(--text-dim); width:32px; text-align:right; }
+
+/* Device list */
+.dev-rows { flex:1; display:flex; flex-direction:column; justify-content:space-around; }
+.devrow { display:flex; align-items:center; gap:8px; font-size:10px; }
+.devrow-icon { font-size:13px; }
+.devrow-name { width:40px; font-size:10px; color:var(--text-dim); font-family:'Noto Sans SC',sans-serif; }
+.devrow-bar-wrap { flex:1; height:7px; background:var(--border); border-radius:4px; overflow:hidden; }
+.devrow-bar { height:100%; border-radius:4px; transition:width .8s ease; }
+.devrow-pct { font-family:'Orbitron',monospace; font-size:10px; width:36px; text-align:right; }
+
+/* Impression event flash on phone */
+.imp-flash {
+  position:fixed;
+  top:0;left:0;right:0;bottom:0;
+  pointer-events:none;
+  z-index:9999;
+  opacity:0;
+}
+</style>
+</head>
+<body>
+
+<!-- Top bar -->
+<div class="topbar">
+  <div>
+    <div class="topbar-title">AD ANALYTICS · REALTIME</div>
+    <div class="topbar-sub">广告点击实时分析系统 · 前端模拟器 + Kafka → Spark → Dashboard</div>
+  </div>
+  <div class="user-strip">
+    <span class="user-label">当前用户</span>
+    <span class="user-id-display" id="userDisplay">U0001</span>
+    <button class="switch-btn" onclick="switchUser()">随机切换</button>
+    <div class="toggle-wrap">
+      <label class="toggle">
+        <input type="checkbox" id="autoSwitch">
+        <span class="toggle-slider"></span>
+      </label>
+      <span>点击后自动换号</span>
+    </div>
+  </div>
+
+  <!-- Auto-run controls -->
+  <div style="display:flex;align-items:center;gap:10px;">
+    <!-- Countdown ring -->
+    <div id="cdWrap" style="display:none;position:relative;width:32px;height:32px;flex-shrink:0;">
+      <svg width="32" height="32" viewBox="0 0 32 32" style="transform:rotate(-90deg)">
+        <circle cx="16" cy="16" r="13" fill="none" stroke="#1a3a5c" stroke-width="3"/>
+        <circle id="cdRing" cx="16" cy="16" r="13" fill="none" stroke="#39ff14" stroke-width="3" stroke-linecap="round"
+          stroke-dasharray="81.7" stroke-dashoffset="81.7" style="transition:stroke-dashoffset 1s linear,stroke 0.3s"/>
+      </svg>
+      <div id="cdNum" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:'Orbitron',monospace;font-size:10px;font-weight:700;color:#39ff14;">15</div>
+    </div>
+    <button id="autoRunBtn" onclick="toggleAutoRun()"
+      style="font-family:'Orbitron',monospace;font-size:11px;font-weight:700;letter-spacing:1px;padding:9px 16px;border-radius:6px;border:2px solid #39ff14;background:rgba(57,255,20,0.08);color:#39ff14;cursor:pointer;white-space:nowrap;transition:all 0.2s;">
+      ▶ 模拟运行（15秒）
+    </button>
+    <button onclick="openDataModal()"
+      style="font-family:'Orbitron',monospace;font-size:11px;font-weight:700;letter-spacing:1px;padding:9px 16px;border-radius:6px;border:2px solid var(--accent4);background:rgba(191,95,255,0.08);color:var(--accent4);cursor:pointer;white-space:nowrap;transition:all 0.2s;">
+      📊 导入数据表
+    </button>
+  </div>
+</div>
+
+<!-- Workspace -->
+<div class="workspace">
+
+  <!-- LEFT: Phone simulator -->
+  <div class="sim-panel">
+    <div class="sim-label">▌ 广告模拟器 · AD SIMULATOR</div>
+
+    <div class="phone-shell" id="phoneShell">
+      <div class="phone-notch"></div>
+      <div class="phone-status">
+        <span id="phoneClock">9:41</span>
+        <span>📶 WiFi</span>
+      </div>
+      <div class="feed-viewport" id="feedViewport">
+        <div class="feed-track" id="feedTrack"></div>
+        <div class="click-toast" id="clickToast"></div>
+        <div class="swipe-event" id="swipeEvent">👆</div>
+        <div class="scroll-hint">
+          <span>↕ 上下滑动</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sim quick stats -->
+    <div class="sim-stats">
+      <div class="sim-stat">
+        <div class="sim-stat-val" id="simClicks" style="color:var(--kafka)">0</div>
+        <div class="sim-stat-label">我的点击</div>
+      </div>
+      <div class="sim-stat">
+        <div class="sim-stat-val" id="simSwipes" style="color:var(--spark)">0</div>
+        <div class="sim-stat-label">滑动次数</div>
+      </div>
+      <div class="sim-stat">
+        <div class="sim-stat-val" id="simImps" style="color:var(--accent3)">0</div>
+        <div class="sim-stat-label">曝光次数</div>
+      </div>
+      <div class="sim-stat">
+        <div class="sim-stat-val" id="simUsers" style="color:var(--accent4)">1</div>
+        <div class="sim-stat-label">切换用户数</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Dashboard -->
+  <div class="dashboard">
+
+    <!-- Kafka log -->
+    <div class="kafka-strip">
+      <div class="kafka-strip-title">⚡ KAFKA CONSUMER LOG · topic: ad-clicks</div>
+      <div class="kafka-log-inner" id="kafkaLog">
+        <div style="color:var(--text-dim);font-size:10px;padding-top:8px;font-family:'Noto Sans SC',sans-serif;">等待事件流入 · 请在左侧模拟器点击或滑动广告...</div>
+      </div>
+    </div>
+
+    <!-- Metrics -->
+    <div class="metrics-grid">
+      <div class="metric m-pv">
+        <div class="metric-label">📈 总点击量 PV</div>
+        <div class="metric-val" id="mPV" style="color:var(--data)">0</div>
+        <div class="metric-sub" id="mPVsub">等待数据</div>
+        <div class="metric-bar"><div class="metric-bar-fill" id="mPVbar" style="background:var(--data)"></div></div>
+      </div>
+      <div class="metric m-uv">
+        <div class="metric-label">👥 独立用户 UV</div>
+        <div class="metric-val" id="mUV" style="color:var(--accent4)">0</div>
+        <div class="metric-sub" id="mUVsub">等待数据</div>
+        <div class="metric-bar"><div class="metric-bar-fill" id="mUVbar" style="background:var(--accent4)"></div></div>
+      </div>
+      <div class="metric m-ctr">
+        <div class="metric-label">🎯 点击率 CTR</div>
+        <div class="metric-val" id="mCTR" style="color:var(--spark);font-size:16px">—</div>
+        <div class="metric-sub" id="mCTRsub">点击/曝光</div>
+        <div class="metric-bar"><div class="metric-bar-fill" id="mCTRbar" style="background:var(--spark)"></div></div>
+      </div>
+      <div class="metric m-imp">
+        <div class="metric-label">👁 总曝光 IMP</div>
+        <div class="metric-val" id="mIMP" style="color:var(--accent3)">0</div>
+        <div class="metric-sub" id="mIMPsub">含无广告内容</div>
+        <div class="metric-bar"><div class="metric-bar-fill" id="mIMPbar" style="background:var(--accent3)"></div></div>
+      </div>
+    </div>
+
+    <!-- Bottom area: charts + DW panel -->
+    <div style="flex:1;display:flex;overflow:hidden;min-height:0;">
+
+      <!-- Charts -->
+      <div class="charts-row">
+        <div class="chart-card cc-ctr">
+          <div class="chart-title">
+            <div class="dot6" style="background:var(--spark)"></div>
+            <span style="color:var(--spark)">CTR 实时趋势</span>
+          </div>
+          <canvas id="ctrCanvas"></canvas>
+        </div>
+        <div class="chart-card cc-top">
+          <div class="chart-title">
+            <div class="dot6" style="background:var(--viz)"></div>
+            <span style="color:var(--viz)">热门广告 TOP 5</span>
+          </div>
+          <div class="ad-rows" id="adRows">
+            <div style="color:var(--text-dim);font-size:10px;font-family:'Noto Sans SC',sans-serif;text-align:center;padding-top:20px">暂无点击数据</div>
+          </div>
+        </div>
+        <div class="chart-card cc-dev">
+          <div class="chart-title">
+            <div class="dot6" style="background:var(--data)"></div>
+            <span style="color:var(--data)">设备 / 用户分布</span>
+          </div>
+          <div class="dev-rows" id="devRows">
+            <div style="color:var(--text-dim);font-size:10px;font-family:'Noto Sans SC',sans-serif;text-align:center;padding-top:20px">暂无数据</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Data Warehouse Panel -->
+      <div id="dwPanel" style="width:280px;flex-shrink:0;border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;background:var(--surface);">
+        <div style="padding:9px 13px 7px;border-bottom:1px solid var(--border);flex-shrink:0;background:linear-gradient(90deg,rgba(191,95,255,0.07),transparent);">
+          <div style="font-family:'Orbitron',monospace;font-size:10px;font-weight:700;color:var(--accent4);letter-spacing:1px;">🗂 数仓分层 · DATA WAREHOUSE</div>
+          <div style="font-size:9px;color:var(--text-dim);font-family:'Noto Sans SC',sans-serif;margin-top:2px;">ODS → DWD → DWS → ADS 实时流入</div>
+        </div>
+        <div style="flex:1;overflow-y:auto;padding:8px 10px;display:flex;flex-direction:column;gap:5px;">
+
+          <!-- ODS -->
+          <div style="border-radius:7px;border:1px solid #3a6aaa;overflow:hidden;flex-shrink:0;">
+            <div style="padding:5px 9px;background:rgba(58,106,170,0.15);display:flex;align-items:center;justify-content:space-between;">
+              <div style="display:flex;align-items:baseline;gap:6px;">
+                <span style="font-family:'Orbitron',monospace;font-size:11px;font-weight:700;color:#74c0fc;">ODS</span>
+                <span style="font-size:9px;color:var(--text-dim);font-family:'Noto Sans SC',sans-serif;">原始数据层</span>
+              </div>
+              <span id="odsCount" style="font-family:'Orbitron',monospace;font-size:11px;font-weight:700;color:#74c0fc;">0</span>
+            </div>
+            <div style="padding:6px 9px;background:rgba(0,0,0,0.35);">
+              <div style="font-size:9px;color:var(--text-dim);font-family:'Space Mono',monospace;margin-bottom:3px;">ods_ad_click_log（按天分区）</div>
+              <div style="display:flex;flex-direction:column;gap:1px;margin-bottom:5px;">
+                <div style="display:flex;gap:8px;font-size:8.5px;font-family:'Space Mono',monospace;"><span style="color:var(--data);min-width:80px;">user_id</span><span style="color:var(--text-dim);">STRING</span></div>
+                <div style="display:flex;gap:8px;font-size:8.5px;font-family:'Space Mono',monospace;"><span style="color:var(--data);min-width:80px;">ad_id</span><span style="color:var(--text-dim);">STRING</span></div>
+                <div style="display:flex;gap:8px;font-size:8.5px;font-family:'Space Mono',monospace;"><span style="color:var(--data);min-width:80px;">event_type</span><span style="color:var(--text-dim);">STRING</span></div>
+                <div style="display:flex;gap:8px;font-size:8.5px;font-family:'Space Mono',monospace;"><span style="color:var(--data);min-width:80px;">device</span><span style="color:var(--text-dim);">STRING</span></div>
+                <div style="display:flex;gap:8px;font-size:8.5px;font-family:'Space Mono',monospace;"><span style="color:var(--data);min-width:80px;">ts</span><span style="color:var(--text-dim);">BIGINT（ms）</span></div>
+              </div>
+              <div style="font-size:8.5px;color:var(--text-dim);font-family:'Noto Sans SC',sans-serif;margin-bottom:3px;">最新记录</div>
+              <div id="odsLive" style="font-size:8px;font-family:'Space Mono',monospace;color:var(--accent3);background:rgba(57,255,20,0.04);border:1px solid rgba(57,255,20,0.1);border-radius:4px;padding:3px 6px;line-height:1.6;word-break:break-all;min-height:28px;opacity:0;transition:opacity 0.4s;"></div>
+            </div>
+          </div>
+
+          <div id="arr1" style="text-align:center;font-size:10px;color:var(--border);transition:color 0.4s,text-shadow 0.4s;">↓ ETL 清洗</div>
+
+          <!-- DWD -->
+          <div style="border-radius:7px;border:1px solid #aa6a3a;overflow:hidden;flex-shrink:0;">
+            <div style="padding:5px 9px;background:rgba(170,106,58,0.15);display:flex;align-items:center;justify-content:space-between;">
+              <div style="display:flex;align-items:baseline;gap:6px;">
+                <span style="font-family:'Orbitron',monospace;font-size:11px;font-weight:700;color:#ffa94d;">DWD</span>
+                <span style="font-size:9px;color:var(--text-dim);font-family:'Noto Sans SC',sans-serif;">明细数据层</span>
+              </div>
+              <span id="dwdCount" style="font-family:'Orbitron',monospace;font-size:11px;font-weight:700;color:#ffa94d;">0</span>
+            </div>
+            <div style="padding:6px 9px;background:rgba(0,0,0,0.35);">
+              <div style="font-size:9px;color:var(--text-dim);font-family:'Space Mono',monospace;margin-bottom:3px;">dwd_ad_click_detail（过滤无效点击）</div>
+              <div style="display:flex;flex-direction:column;gap:1px;margin-bottom:5px;">
+                <div style="display:flex;gap:8px;font-size:8.5px;font-family:'Space Mono',monospace;"><span style="color:var(--data);min-width:80px;">user_id</span><span style="color:var(--text-dim);">STRING</span></div>
+                <div style="display:flex;gap:8px;font-size:8.5px;font-family:'Space Mono',monospace;"><span style="color:var(--data);min-width:80px;">ad_id</span><span style="color:var(--text-dim);">STRING</span></div>
+                <div style="display:flex;gap:8px;font-size:8.5px;font-family:'Space Mono',monospace;"><span style="color:var(--data);min-width:80px;">is_valid</span><span style="color:var(--text-dim);">BOOLEAN</span></div>
+                <div style="display:flex;gap:8px;font-size:8.5px;font-family:'Space Mono',monospace;"><span style="color:var(--data);min-width:80px;">device</span><span style="color:var(--text-dim);">STRING</span></div>
+                <div style="display:flex;gap:8px;font-size:8.5px;font-family:'Space Mono',monospace;"><span style="color:var(--data);min-width:80px;">dt</span><span style="color:var(--text-dim);">DATE 分区键</span></div>
+              </div>
+              <div style="font-size:8.5px;color:var(--text-dim);font-family:'Noto Sans SC',sans-serif;margin-bottom:3px;">最新记录</div>
+              <div id="dwdLive" style="font-size:8px;font-family:'Space Mono',monospace;color:#ffa94d;background:rgba(255,169,77,0.04);border:1px solid rgba(255,169,77,0.12);border-radius:4px;padding:3px 6px;line-height:1.6;word-break:break-all;min-height:28px;opacity:0;transition:opacity 0.4s;"></div>
+            </div>
+          </div>
+
+          <div id="arr2" style="text-align:center;font-size:10px;color:var(--border);transition:color 0.4s,text-shadow 0.4s;">↓ 聚合统计</div>
+
+          <!-- DWS -->
+          <div style="border-radius:7px;border:1px solid #3aaa6a;overflow:hidden;flex-shrink:0;">
+            <div style="padding:5px 9px;background:rgba(58,170,106,0.15);display:flex;align-items:center;justify-content:space-between;">
+              <div style="display:flex;align-items:baseline;gap:6px;">
+                <span style="font-family:'Orbitron',monospace;font-size:11px;font-weight:700;color:#69db7c;">DWS</span>
+                <span style="font-size:9px;color:var(--text-dim);font-family:'Noto Sans SC',sans-serif;">汇总数据层</span>
+              </div>
+              <span id="dwsCount" style="font-family:'Orbitron',monospace;font-size:11px;font-weight:700;color:#69db7c;">0</span>
+            </div>
+            <div style="padding:6px 9px;background:rgba(0,0,0,0.35);">
+              <div style="font-size:9px;color:var(--text-dim);font-family:'Space Mono',monospace;margin-bottom:3px;">dws_ad_stats_1d（按广告+设备汇总）</div>
+              <div style="display:flex;flex-direction:column;gap:1px;margin-bottom:5px;">
+                <div style="display:flex;gap:8px;font-size:8.5px;font-family:'Space Mono',monospace;"><span style="color:var(--data);min-width:80px;">ad_id</span><span style="color:var(--text-dim);">STRING</span></div>
+                <div style="display:flex;gap:8px;font-size:8.5px;font-family:'Space Mono',monospace;"><span style="color:var(--data);min-width:80px;">pv</span><span style="color:var(--text-dim);">BIGINT</span></div>
+                <div style="display:flex;gap:8px;font-size:8.5px;font-family:'Space Mono',monospace;"><span style="color:var(--data);min-width:80px;">uv</span><span style="color:var(--text-dim);">BIGINT</span></div>
+                <div style="display:flex;gap:8px;font-size:8.5px;font-family:'Space Mono',monospace;"><span style="color:var(--data);min-width:80px;">imp</span><span style="color:var(--text-dim);">BIGINT</span></div>
+                <div style="display:flex;gap:8px;font-size:8.5px;font-family:'Space Mono',monospace;"><span style="color:var(--data);min-width:80px;">ctr</span><span style="color:var(--text-dim);">DOUBLE</span></div>
+              </div>
+              <div style="font-size:8.5px;color:var(--text-dim);font-family:'Noto Sans SC',sans-serif;margin-bottom:3px;">最新聚合</div>
+              <div id="dwsLive" style="font-size:8px;font-family:'Space Mono',monospace;color:#69db7c;background:rgba(105,219,124,0.04);border:1px solid rgba(105,219,124,0.12);border-radius:4px;padding:3px 6px;line-height:1.6;word-break:break-all;min-height:28px;opacity:0;transition:opacity 0.4s;"></div>
+            </div>
+          </div>
+
+          <div id="arr3" style="text-align:center;font-size:10px;color:var(--border);transition:color 0.4s,text-shadow 0.4s;">↓ 应用指标</div>
+
+          <!-- ADS -->
+          <div style="border-radius:7px;border:1px solid var(--accent4);overflow:hidden;flex-shrink:0;">
+            <div style="padding:5px 9px;background:rgba(191,95,255,0.15);display:flex;align-items:center;justify-content:space-between;">
+              <div style="display:flex;align-items:baseline;gap:6px;">
+                <span style="font-family:'Orbitron',monospace;font-size:11px;font-weight:700;color:var(--accent4);">ADS</span>
+                <span style="font-size:9px;color:var(--text-dim);font-family:'Noto Sans SC',sans-serif;">应用数据层</span>
+              </div>
+              <span id="adsCount" style="font-family:'Orbitron',monospace;font-size:11px;font-weight:700;color:var(--accent4);">0</span>
+            </div>
+            <div style="padding:6px 9px;background:rgba(0,0,0,0.35);">
+              <div style="font-size:9px;color:var(--text-dim);font-family:'Space Mono',monospace;margin-bottom:3px;">ads_top_ad_report（供报表直接查询）</div>
+              <div style="display:flex;flex-direction:column;gap:1px;margin-bottom:5px;">
+                <div style="display:flex;gap:8px;font-size:8.5px;font-family:'Space Mono',monospace;"><span style="color:var(--data);min-width:80px;">rank</span><span style="color:var(--text-dim);">INT</span></div>
+                <div style="display:flex;gap:8px;font-size:8.5px;font-family:'Space Mono',monospace;"><span style="color:var(--data);min-width:80px;">ad_id</span><span style="color:var(--text-dim);">STRING</span></div>
+                <div style="display:flex;gap:8px;font-size:8.5px;font-family:'Space Mono',monospace;"><span style="color:var(--data);min-width:80px;">total_pv</span><span style="color:var(--text-dim);">BIGINT</span></div>
+                <div style="display:flex;gap:8px;font-size:8.5px;font-family:'Space Mono',monospace;"><span style="color:var(--data);min-width:80px;">ctr</span><span style="color:var(--text-dim);">DOUBLE</span></div>
+                <div style="display:flex;gap:8px;font-size:8.5px;font-family:'Space Mono',monospace;"><span style="color:var(--data);min-width:80px;">report_dt</span><span style="color:var(--text-dim);">DATE</span></div>
+              </div>
+              <div style="font-size:8.5px;color:var(--text-dim);font-family:'Noto Sans SC',sans-serif;margin-bottom:3px;">最新报表行</div>
+              <div id="adsLive" style="font-size:8px;font-family:'Space Mono',monospace;color:var(--accent4);background:rgba(191,95,255,0.04);border:1px solid rgba(191,95,255,0.12);border-radius:4px;padding:3px 6px;line-height:1.6;word-break:break-all;min-height:28px;opacity:0;transition:opacity 0.4s;"></div>
+            </div>
+          </div>
+
+        </div>
+      </div><!-- /DW panel -->
+
+    </div><!-- /bottom-area -->
+
+  </div>
+</div>
+
+<script>
+// ── Ad definitions ────────────────────────────────────────────────────────────
+const ADS = [
+  { id:'AD_001', label:'广告 1', color:'var(--ad1)', bg:'rgba(255,107,107,0.08)', icon:'🛍️', desc:'限时特惠' },
+  { id:'AD_002', label:'广告 2', color:'var(--ad2)', bg:'rgba(255,169,77,0.08)',  icon:'🎮', desc:'新品发布' },
+  { id:'AD_003', label:'广告 3', color:'var(--ad3)', bg:'rgba(105,219,124,0.08)', icon:'🚀', desc:'立即体验' },
+  { id:'AD_004', label:'广告 4', color:'var(--ad4)', bg:'rgba(116,192,252,0.08)', icon:'💎', desc:'会员专属' },
+  { id:'AD_005', label:'广告 5', color:'var(--ad5)', bg:'rgba(218,119,242,0.08)', icon:'🎁', desc:'免费领取' },
+];
+
+// Feed sequence: ads + no-ad slots, shuffled with ~40% no-ad ratio
+function buildFeed() {
+  const items = [];
+  // Repeat ads to make a longer feed
+  for(let r=0;r<4;r++){
+    ADS.forEach(ad => items.push({type:'ad', ...ad}));
+    // Insert no-ad slots
+    const noAdCount = Math.floor(Math.random()*3)+2;
+    for(let i=0;i<noAdCount;i++) items.push({type:'noad'});
+  }
+  // Shuffle
+  for(let i=items.length-1;i>0;i--){
+    const j=Math.floor(Math.random()*(i+1));
+    [items[i],items[j]]=[items[j],items[i]];
+  }
+  return items;
+}
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let currentUser = 'U0001';
+let usedUsers = new Set(['U0001']);
+let totalPV = 0, totalUV = 0, totalIMP = 0;
+const seenUsers = new Set();
+const adClicks  = {};
+const deviceCounts = { mobile:0, desktop:0, tablet:0 };
+ADS.forEach(a => adClicks[a.id] = 0);
+
+// Sim local counters
+let simClicks=0, simSwipes=0, simImps=0;
+
+// CTR history
+const ctrHistory = Array(40).fill(0);
+
+// Feed state
+let feedItems = buildFeed();
+let currentIndex = 0;
+let isAnimating = false;
+
+// Device for current session (phone = mobile always for sim)
+const SESSION_DEVICE = 'mobile';
+
+// ── User management ───────────────────────────────────────────────────────────
+function randUser() {
+  const n = Math.floor(Math.random()*499)+1;
+  return 'U'+String(n).padStart(4,'0');
+}
+
+function switchUser() {
+  currentUser = randUser();
+  usedUsers.add(currentUser);
+  document.getElementById('simUsers').textContent = usedUsers.size;
+  const el = document.getElementById('userDisplay');
+  el.textContent = currentUser;
+  el.classList.add('flash');
+  setTimeout(()=>el.classList.remove('flash'),400);
+}
+
+// ── Build phone feed ──────────────────────────────────────────────────────────
+function buildPhoneFeed() {
+  const track = document.getElementById('feedTrack');
+  track.innerHTML = '';
+  feedItems.forEach((item, idx) => {
+    const card = document.createElement('div');
+    card.className = 'feed-card ' + (item.type==='ad'?'ad':'noad');
+
+    if(item.type === 'noad') {
+      card.style.background = 'linear-gradient(160deg,#0d1a24,#0a1218)';
+      card.innerHTML = `
+        <div class="card-badge" style="background:rgba(42,58,74,0.8);color:var(--text-dim);border:1px solid var(--border)">内容</div>
+        <div class="card-box" style="border-color:#2a3a4a;background:rgba(42,58,74,0.2);width:180px;height:180px">
+          <div style="font-size:36px">📄</div>
+          <div class="card-title" style="color:#4a6a8a;font-size:14px">无广告</div>
+          <div class="card-sub">普通内容</div>
+        </div>
+        <div style="font-size:10px;color:var(--text-dim);font-family:'Noto Sans SC',sans-serif">滑动继续浏览</div>`;
+    } else {
+      card.style.background = `linear-gradient(160deg,${item.bg},#0a1218)`;
+      card.innerHTML = `
+        <div class="card-badge" style="background:${item.bg};color:${item.color};border:1px solid ${item.color}">${item.id}</div>
+        <div class="card-box" style="border-color:${item.color};background:${item.bg}">
+          <div style="font-size:40px">${item.icon}</div>
+          <div class="card-title" style="color:${item.color}">${item.label}</div>
+          <div class="card-sub">${item.desc}</div>
+        </div>
+        <div style="font-size:10px;color:${item.color};opacity:0.7;font-family:'Noto Sans SC',sans-serif">点击查看详情</div>`;
+      card.addEventListener('click', (e) => handleAdClick(e, item, card));
+    }
+    track.appendChild(card);
+  });
+  updateFeedPosition(false);
+  // Log first impression
+  recordImpression();
+}
+
+function updateFeedPosition(animate=true) {
+  const track = document.getElementById('feedTrack');
+  const h = 496;
+  if(!animate) track.style.transition='none';
+  else track.style.transition='transform 0.35s cubic-bezier(0.25,0.46,0.45,0.94)';
+  track.style.transform = `translateY(${-currentIndex * h}px)`;
+}
+
+// ── Interaction handlers ──────────────────────────────────────────────────────
+function handleAdClick(e, item, card) {
+  // Ripple
+  const rect = card.getBoundingClientRect();
+  const ripple = document.createElement('div');
+  ripple.className = 'ripple';
+  ripple.style.left = (e.clientX - rect.left) + 'px';
+  ripple.style.top  = (e.clientY - rect.top)  + 'px';
+  ripple.style.background = item.color.replace('var(--','').replace(')','');
+  card.appendChild(ripple);
+  setTimeout(()=>ripple.remove(), 600);
+
+  // Toast
+  const toast = document.getElementById('clickToast');
+  toast.textContent = `✓ ${item.id} 点击已记录`;
+  toast.style.background = item.color.includes('var')
+    ? (item.id==='AD_001'?'#ff6b6b':item.id==='AD_002'?'#ffa94d':item.id==='AD_003'?'#69db7c':item.id==='AD_004'?'#74c0fc':'#da77f2')
+    : item.color;
+  toast.classList.remove('show');
+  void toast.offsetWidth;
+  toast.classList.add('show');
+
+  // Record event
+  recordClick(item.id);
+
+  // Auto switch user
+  if(document.getElementById('autoSwitch').checked) {
+    setTimeout(switchUser, 200);
+  }
+}
+
+function goNext() {
+  if(isAnimating) return;
+  if(currentIndex >= feedItems.length - 1) {
+    // Rebuild feed
+    feedItems = buildFeed();
+    buildPhoneFeed();
+    currentIndex = 0;
+    return;
+  }
+  isAnimating = true;
+  currentIndex++;
+  updateFeedPosition(true);
+  simSwipes++;
+  document.getElementById('simSwipes').textContent = simSwipes;
+
+  // Swipe event
+  const se = document.getElementById('swipeEvent');
+  se.textContent = '👆';
+  se.classList.remove('show');
+  void se.offsetWidth;
+  se.classList.add('show');
+
+  setTimeout(()=>{ isAnimating=false; }, 400);
+  recordImpression();
+  recordSwipeEvent();
+}
+
+function goPrev() {
+  if(isAnimating || currentIndex===0) return;
+  isAnimating = true;
+  currentIndex--;
+  updateFeedPosition(true);
+  simSwipes++;
+  document.getElementById('simSwipes').textContent = simSwipes;
+  setTimeout(()=>{ isAnimating=false; }, 400);
+  recordImpression();
+}
+
+// ── Touch / Wheel swipe ───────────────────────────────────────────────────────
+let touchStartY = 0;
+const viewport = document.getElementById('feedViewport');
+
+viewport.addEventListener('touchstart', e=>{ touchStartY=e.touches[0].clientY; }, {passive:true});
+viewport.addEventListener('touchend', e=>{
+  const dy = touchStartY - e.changedTouches[0].clientY;
+  if(Math.abs(dy)>40){ dy>0?goNext():goPrev(); }
+}, {passive:true});
+
+viewport.addEventListener('wheel', e=>{
+  e.preventDefault();
+  if(e.deltaY>20) goNext();
+  else if(e.deltaY<-20) goPrev();
+}, {passive:false});
+
+// Keyboard
+document.addEventListener('keydown', e=>{
+  if(e.key==='ArrowDown') goNext();
+  if(e.key==='ArrowUp')   goPrev();
+});
+
+// ── Data recording ────────────────────────────────────────────────────────────
+function recordClick(adId) {
+  totalPV++;
+  simClicks++;
+  adClicks[adId]++;
+  deviceCounts[SESSION_DEVICE]++;
+
+  if(!seenUsers.has(currentUser)){
+    seenUsers.add(currentUser);
+    totalUV++;
+  }
+
+  document.getElementById('simClicks').textContent = simClicks;
+  addKafkaLog('CLICK', currentUser, adId, SESSION_DEVICE);
+  updateDWLayer(currentUser, adId, SESSION_DEVICE, 'CLICK');
+  updateDashboard();
+  pushCTRHistory();
+}
+
+function recordImpression() {
+  totalIMP++;
+  simImps++;
+  document.getElementById('simImps').textContent = simImps;
+  const cur = feedItems[currentIndex];
+  if(cur) {
+    addKafkaLog('IMP', currentUser, cur.type==='ad'?cur.id:'NO_AD', SESSION_DEVICE);
+    updateDWLayer(currentUser, cur.type==='ad'?cur.id:'NO_AD', SESSION_DEVICE, 'IMP');
+  }
+  updateDashboard();
+  pushCTRHistory();
+}
+
+function recordSwipeEvent() {
+  // Swipe also counts as implicit interaction in Kafka
+  addKafkaLog('SWIPE', currentUser, '—', SESSION_DEVICE);
+}
+
+// ── Kafka log ─────────────────────────────────────────────────────────────────
+function addKafkaLog(type, uid, adId, device) {
+  const container = document.getElementById('kafkaLog');
+  // Remove empty state
+  if(container.querySelector('div[style]')) container.innerHTML='';
+
+  const ts = new Date().toISOString().slice(11,23);
+  const typeColors = { CLICK:'var(--kafka)', IMP:'var(--accent3)', SWIPE:'var(--spark)' };
+  const col = typeColors[type]||'var(--text-dim)';
+
+  const line = document.createElement('div');
+  line.className='klog';
+  line.innerHTML=`<span style="color:var(--text-dim)">${ts}</span> [<span style="color:${col}">${type}</span>] <span style="color:var(--data)">${uid}</span> → <span style="color:var(--kafka)">${adId}</span> [<span style="color:var(--spark)">${device}</span>]`;
+  container.insertBefore(line, container.firstChild);
+  while(container.children.length>5) container.removeChild(container.lastChild);
+}
+
+// ── Dashboard update ──────────────────────────────────────────────────────────
+function updateDashboard() {
+  // PV
+  document.getElementById('mPV').textContent = totalPV.toLocaleString();
+  document.getElementById('mPVsub').textContent = `+${totalPV} 总点击`;
+  document.getElementById('mPVbar').style.width = Math.min(totalPV/100*100,100)+'%';
+
+  // UV
+  document.getElementById('mUV').textContent = totalUV.toLocaleString();
+  document.getElementById('mUVsub').textContent = `${seenUsers.size} 个用户`;
+  document.getElementById('mUVbar').style.width = Math.min(totalUV/50*100,100)+'%';
+
+  // CTR = clicks / impressions
+  const ctr = totalIMP>0 ? (totalPV/totalIMP) : 0;
+  document.getElementById('mCTR').textContent = (ctr*100).toFixed(1)+'%';
+  document.getElementById('mCTRsub').textContent = `${totalPV}次点击 / ${totalIMP}次曝光`;
+  document.getElementById('mCTRbar').style.width = Math.min(ctr*5*100,100)+'%';
+
+  // IMP
+  document.getElementById('mIMP').textContent = totalIMP.toLocaleString();
+  document.getElementById('mIMPbar').style.width = Math.min(totalIMP/200*100,100)+'%';
+
+  updateTopAds();
+  updateDevices();
+  drawCTRChart();
+}
+
+function pushCTRHistory() {
+  const ctr = totalIMP>0?(totalPV/totalIMP):0;
+  ctrHistory.shift();
+  ctrHistory.push(ctr);
+}
+
+// ── Top ads ───────────────────────────────────────────────────────────────────
+const AD_COLORS = { AD_001:'#ff6b6b', AD_002:'#ffa94d', AD_003:'#69db7c', AD_004:'#74c0fc', AD_005:'#da77f2' };
+
+function updateTopAds() {
+  const sorted = Object.entries(adClicks).sort((a,b)=>b[1]-a[1]).filter(([,v])=>v>0).slice(0,5);
+  if(!sorted.length) return;
+  const max = sorted[0][1]||1;
+  const container = document.getElementById('adRows');
+  container.innerHTML='';
+  sorted.forEach(([id,clicks],i)=>{
+    const pct=(clicks/max*100).toFixed(0);
+    const col=AD_COLORS[id]||'var(--viz)';
+    const row=document.createElement('div');
+    row.className='adrow';
+    row.innerHTML=`<span class="adrow-rank ${i===0?'gold':''}">#${i+1}</span><span class="adrow-id" style="color:${col}">${id}</span><div class="adrow-bar-wrap"><div class="adrow-bar" style="width:${pct}%;background:${col}"></div></div><span class="adrow-n">${clicks}</span>`;
+    container.appendChild(row);
+  });
+}
+
+// ── Device breakdown ──────────────────────────────────────────────────────────
+function updateDevices() {
+  const total=Object.values(deviceCounts).reduce((a,b)=>a+b,0)||1;
+  const container=document.getElementById('devRows');
+  container.innerHTML='';
+  const devInfo=[
+    {key:'mobile',  icon:'📱', name:'手机',  color:'var(--data)'},
+    {key:'desktop', icon:'💻', name:'桌面',  color:'var(--spark)'},
+    {key:'tablet',  icon:'📟', name:'平板',  color:'var(--accent4)'},
+  ];
+  devInfo.forEach(({key,icon,name,color})=>{
+    const pct=(deviceCounts[key]/total*100).toFixed(1);
+    const row=document.createElement('div');
+    row.className='devrow';
+    row.innerHTML=`<span class="devrow-icon">${icon}</span><span class="devrow-name">${name}</span><div class="devrow-bar-wrap"><div class="devrow-bar" style="width:${pct}%;background:${color}"></div></div><span class="devrow-pct" style="color:${color}">${pct}%</span>`;
+    container.appendChild(row);
+  });
+}
+
+// ── CTR Chart ─────────────────────────────────────────────────────────────────
+function drawCTRChart() {
+  const canvas=document.getElementById('ctrCanvas');
+  const c=canvas.getContext('2d');
+  const W=canvas.offsetWidth||200;
+  const H=canvas.offsetHeight||120;
+  canvas.width=W; canvas.height=H;
+  c.clearRect(0,0,W,H);
+
+  const pad={top:8,right:8,bottom:16,left:32};
+  const pw=W-pad.left-pad.right;
+  const ph=H-pad.top-pad.bottom;
+  const maxVal=Math.max(...ctrHistory,0.01);
+
+  // grid
+  c.strokeStyle='rgba(26,58,92,0.7)'; c.lineWidth=1;
+  for(let i=0;i<=3;i++){
+    const y=pad.top+(ph/3)*i;
+    c.beginPath(); c.moveTo(pad.left,y); c.lineTo(pad.left+pw,y); c.stroke();
+    c.fillStyle='rgba(90,138,170,0.8)'; c.font='8px Space Mono';
+    c.fillText(((maxVal*(3-i)/3)*100).toFixed(1)+'%',0,y+3);
+  }
+
+  if(ctrHistory.every(v=>v===0)){
+    c.fillStyle='rgba(90,138,170,0.3)';
+    c.font='10px Noto Sans SC';
+    c.textAlign='center';
+    c.fillText('点击广告后显示',W/2,H/2);
+    c.textAlign='left';
+    return;
+  }
+
+  const n=ctrHistory.length;
+  const grad=c.createLinearGradient(0,pad.top,0,pad.top+ph);
+  grad.addColorStop(0,'rgba(255,215,0,0.35)');
+  grad.addColorStop(1,'rgba(255,215,0,0.0)');
+
+  c.beginPath();
+  ctrHistory.forEach((v,i)=>{
+    const x=pad.left+(pw/(n-1))*i;
+    const y=pad.top+ph-(v/maxVal)*ph;
+    i===0?c.moveTo(x,y):c.lineTo(x,y);
+  });
+  c.lineTo(pad.left+pw,pad.top+ph);
+  c.lineTo(pad.left,pad.top+ph);
+  c.closePath(); c.fillStyle=grad; c.fill();
+
+  c.beginPath(); c.strokeStyle='#ffd700'; c.lineWidth=1.5; c.lineJoin='round';
+  ctrHistory.forEach((v,i)=>{
+    const x=pad.left+(pw/(n-1))*i;
+    const y=pad.top+ph-(v/maxVal)*ph;
+    i===0?c.moveTo(x,y):c.lineTo(x,y);
+  });
+  c.stroke();
+
+  // last dot
+  const lx=pad.left+pw;
+  const ly=pad.top+ph-(ctrHistory[n-1]/maxVal)*ph;
+  c.beginPath(); c.arc(lx,ly,3,0,Math.PI*2);
+  c.fillStyle='#ffd700'; c.fill();
+}
+
+// ── Data Warehouse layer update ───────────────────────────────────────────────
+let dwCounts = { ods:0, dwd:0, dws:0, ads:0 };
+
+function flashCount(id) {
+  const el = document.getElementById(id);
+  if(!el) return;
+  el.classList.remove('flash-anim');
+  void el.offsetWidth;
+  el.style.animation = 'none';
+  el.offsetHeight;
+  el.style.animation = '';
+  // manual flash
+  el.style.opacity = '0.2';
+  setTimeout(()=>{ el.style.opacity='1'; }, 180);
+}
+
+function lightArrow(id) {
+  const el = document.getElementById(id);
+  if(!el) return;
+  el.style.color = 'var(--accent4)';
+  el.style.textShadow = '0 0 8px var(--accent4)';
+  setTimeout(()=>{
+    el.style.color = 'var(--border)';
+    el.style.textShadow = 'none';
+  }, 600);
+}
+
+function updateDWLayer(uid, adId, device, eventType) {
+  const ts = new Date().toISOString().slice(0,19);
+  const dt = new Date().toISOString().slice(0,10);
+
+  // ODS: every event
+  dwCounts.ods++;
+  document.getElementById('odsCount').textContent = dwCounts.ods;
+  flashCount('odsCount');
+  const odsEl = document.getElementById('odsLive');
+  odsEl.style.opacity='1';
+  odsEl.innerHTML = `user_id: <span style="color:var(--data)">${uid}</span><br>ad_id: <span style="color:var(--kafka)">${adId}</span> · event: ${eventType}<br>device: ${device} · ts: ${ts}`;
+
+  // DWD: only CLICK and IMP (filter SWIPE)
+  if(eventType !== 'SWIPE') {
+    setTimeout(()=>{
+      lightArrow('arr1');
+      dwCounts.dwd++;
+      document.getElementById('dwdCount').textContent = dwCounts.dwd;
+      flashCount('dwdCount');
+      const isValid = eventType==='CLICK';
+      const dwdEl = document.getElementById('dwdLive');
+      dwdEl.style.opacity='1';
+      dwdEl.innerHTML = `user_id: <span style="color:var(--data)">${uid}</span><br>ad_id: <span style="color:var(--kafka)">${adId}</span> · is_valid: <span style="${isValid?'color:#69db7c':'color:#ff6b6b'}">${isValid}</span><br>device: ${device} · dt: ${dt}`;
+    }, 200);
+  }
+
+  // DWS: aggregate on CLICK events, update every 3 clicks
+  if(eventType === 'CLICK' && dwCounts.ods % 3 === 0) {
+    setTimeout(()=>{
+      lightArrow('arr2');
+      dwCounts.dws++;
+      document.getElementById('dwsCount').textContent = dwCounts.dws;
+      flashCount('dwsCount');
+      const ctr = totalIMP>0?(totalPV/totalIMP):0;
+      const dwsEl = document.getElementById('dwsLive');
+      dwsEl.style.opacity='1';
+      dwsEl.innerHTML = `ad_id: <span style="color:var(--kafka)">${adId}</span><br>pv: ${totalPV} · uv: ${totalUV} · imp: ${totalIMP}<br>ctr: <span style="color:#69db7c">${(ctr*100).toFixed(2)}%</span>`;
+    }, 400);
+  }
+
+  // ADS: top report, update every 5 clicks
+  if(eventType === 'CLICK' && dwCounts.ods % 5 === 0) {
+    setTimeout(()=>{
+      lightArrow('arr3');
+      dwCounts.ads++;
+      document.getElementById('adsCount').textContent = dwCounts.ads;
+      flashCount('adsCount');
+      const top = Object.entries(adClicks).sort((a,b)=>b[1]-a[1])[0];
+      const ctr = totalIMP>0?(totalPV/totalIMP):0;
+      const adsEl = document.getElementById('adsLive');
+      adsEl.style.opacity='1';
+      adsEl.innerHTML = `rank: <span style="color:var(--spark)">1</span> · ad_id: <span style="color:var(--kafka)">${top?top[0]:'—'}</span><br>total_pv: ${top?top[1]:0} · ctr: <span style="color:var(--accent4)">${(ctr*100).toFixed(2)}%</span><br>report_dt: ${dt}`;
+    }, 650);
+  }
+}
+
+// ── Auto-run simulation ───────────────────────────────────────────────────────
+const AUTO_DURATION = 15;
+let autoRunning = false;
+let autoIntervals = [];
+let autoCdTimer = null;
+let autoCountdown = AUTO_DURATION;
+const DEVICES_ALL = ['mobile','desktop','tablet'];
+const AUTO_USER_POOL = Array.from({length:500},(_,i)=>'U'+String(i+1).padStart(4,'0'));
+
+function toggleAutoRun() {
+  if(autoRunning) return;
+  startAutoRun();
+}
+
+function startAutoRun() {
+  autoRunning = true;
+  autoCountdown = AUTO_DURATION;
+
+  const btn = document.getElementById('autoRunBtn');
+  btn.disabled = true;
+  btn.style.borderColor = 'var(--kafka)';
+  btn.style.color = 'var(--kafka)';
+  btn.style.background = 'rgba(255,107,53,0.08)';
+  btn.textContent = '⏳ 自动运行中...';
+
+  const cdWrap = document.getElementById('cdWrap');
+  const cdRing = document.getElementById('cdRing');
+  const cdNum  = document.getElementById('cdNum');
+  cdWrap.style.display = 'block';
+  cdNum.textContent = autoCountdown;
+  cdRing.style.strokeDashoffset = '81.7';
+  cdRing.style.stroke = '#39ff14';
+
+  autoCdTimer = setInterval(()=>{
+    autoCountdown--;
+    cdNum.textContent = autoCountdown;
+    const offset = 81.7 * (autoCountdown / AUTO_DURATION);
+    cdRing.style.strokeDashoffset = String(offset);
+    if(autoCountdown <= 5) cdRing.style.stroke = 'var(--kafka)';
+    if(autoCountdown <= 0){ clearInterval(autoCdTimer); stopAutoRun(); }
+  }, 1000);
+
+  autoIntervals.push(setInterval(()=>{
+    const batchSize = Math.floor(Math.random()*5)+2;
+    for(let i=0;i<batchSize;i++){
+      const uid = AUTO_USER_POOL[Math.floor(Math.random()*AUTO_USER_POOL.length)];
+      const device = DEVICES_ALL[Math.floor(Math.random()*DEVICES_ALL.length)];
+      const isClick = Math.random() < 0.35;
+      totalIMP++; simImps++;
+      document.getElementById('simImps').textContent = simImps;
+      if(isClick){
+        const ad = ADS[Math.floor(Math.random()*ADS.length)];
+        totalPV++; adClicks[ad.id]++; deviceCounts[device]++;
+        if(!seenUsers.has(uid)){ seenUsers.add(uid); totalUV++; }
+        addKafkaLog('CLICK', uid, ad.id, device);
+        updateDWLayer(uid, ad.id, device, 'CLICK');
+      } else {
+        const showAd = Math.random()<0.6;
+        deviceCounts[device]++;
+        addKafkaLog('IMP', uid, showAd?ADS[Math.floor(Math.random()*ADS.length)].id:'NO_AD', device);
+      }
+    }
+    if(Math.random()<0.4){
+      if(currentIndex < feedItems.length-1){ currentIndex++; updateFeedPosition(true); simSwipes++; document.getElementById('simSwipes').textContent=simSwipes; }
+      else{ feedItems=buildFeed(); buildPhoneFeed(); currentIndex=0; }
+    }
+    pushCTRHistory(); updateDashboard();
+  }, 600));
+}
+
+function stopAutoRun() {
+  autoRunning = false;
+  autoIntervals.forEach(clearInterval); autoIntervals = [];
+  const btn = document.getElementById('autoRunBtn');
+  btn.disabled = false;
+  btn.style.borderColor = '#39ff14'; btn.style.color = '#39ff14';
+  btn.style.background = 'rgba(57,255,20,0.08)';
+  btn.textContent = '▶ 模拟运行（15秒）';
+  const cdWrap=document.getElementById('cdWrap');
+  const cdRing=document.getElementById('cdRing');
+  const cdNum=document.getElementById('cdNum');
+  cdRing.style.strokeDashoffset='0'; cdRing.style.stroke='var(--spark)';
+  cdNum.textContent='✓'; cdNum.style.color='var(--spark)';
+  setTimeout(()=>{ cdWrap.style.display='none'; cdNum.style.color='#39ff14'; },2000);
+}
+
+// ── Clock ─────────────────────────────────────────────────────────────────────
+function updateClock(){
+  const now=new Date();
+  document.getElementById('phoneClock').textContent=now.getHours()+':'+String(now.getMinutes()).padStart(2,'0');
+}
+setInterval(updateClock,30000); updateClock();
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+buildPhoneFeed();
+drawCTRChart();
+window.addEventListener('resize', drawCTRChart);
+
+// ── Modal & Analysis ──────────────────────────────────────────────────────────
+function openDataModal(){document.getElementById('dataModal').style.display='block';}
+function closeDataModal(){document.getElementById('dataModal').style.display='none';}
+
+function fillSample1(){
+  document.getElementById('table1Input').value=`user_id,ad_id,event_type,device,ts
+U0042,AD_001,CLICK,mobile,1746364800000
+U0117,AD_002,IMP,desktop,1746364801000
+U0042,AD_001,CLICK,mobile,1746364802000
+U0203,AD_003,CLICK,tablet,1746364803000
+U0089,AD_003,IMP,mobile,1746364804000
+U0156,AD_004,CLICK,desktop,1746364805000
+U0089,AD_003,CLICK,mobile,1746364806000
+U0312,AD_002,IMP,mobile,1746364807000
+U0312,AD_002,CLICK,mobile,1746364808000
+U0401,AD_005,IMP,desktop,1746364809000
+U0401,AD_005,CLICK,desktop,1746364810000
+U0117,AD_001,IMP,desktop,1746364811000
+U0055,AD_004,CLICK,mobile,1746364812000
+U0055,AD_004,IMP,mobile,1746364813000
+U0278,AD_003,CLICK,tablet,1746364814000
+U0189,AD_005,IMP,mobile,1746364815000
+U0189,AD_005,CLICK,mobile,1746364816000
+U0345,AD_002,CLICK,desktop,1746364817000
+U0421,AD_001,IMP,mobile,1746364818000
+U0421,AD_001,CLICK,mobile,1746364819000
+U0067,AD_003,IMP,tablet,1746364820000
+U0067,AD_003,CLICK,tablet,1746364821000
+U0234,AD_004,IMP,desktop,1746364822000
+U0290,AD_002,CLICK,mobile,1746364823000
+U0133,AD_005,IMP,desktop,1746364824000`;
+  document.getElementById('t1status').innerHTML='<span style="color:var(--accent3)">\u2713 25\u884c\u793a\u4f8b\u6570\u636e\u5df2\u586b\u5165</span>';
+}
+
+function fillSample2(){
+  document.getElementById('table2Input').value=`ad_id,ad_name,category,budget
+AD_001,\u9650\u65f6\u7279\u60e0,\u7535\u5546,50000
+AD_002,\u65b0\u54c1\u53d1\u5e03,\u6570\u7801,80000
+AD_003,\u7acb\u5373\u4f53\u9a8c,\u6e38\u620f,30000
+AD_004,\u4f1a\u5458\u4e13\u5c5e,\u91d1\u878d,120000
+AD_005,\u514d\u8d39\u9886\u53d6,\u6559\u80b2,25000`;
+  document.getElementById('t2status').innerHTML='<span style="color:var(--accent3)">\u2713 5\u884c\u793a\u4f8b\u6570\u636e\u5df2\u586b\u5165</span>';
+}
+
+function parseCSV(text){
+  const lines=text.trim().split('\n').map(l=>l.trim()).filter(l=>l);
+  if(lines.length<2)return[];
+  const headers=lines[0].split(',').map(h=>h.trim());
+  return lines.slice(1).map(line=>{
+    const vals=line.split(',').map(v=>v.trim());
+    const obj={};
+    headers.forEach((h,i)=>{obj[h]=vals[i]||'';});
+    return obj;
+  });
+}
+
+function runAnalysis(){
+  const raw1=document.getElementById('table1Input').value.trim();
+  const raw2=document.getElementById('table2Input').value.trim();
+  const status=document.getElementById('analyzeStatus');
+  if(!raw1){status.innerHTML='<span style="color:#ff6b6b">\u26a0 \u8bf7\u5148\u586b\u5165\u88681\u6570\u636e</span>';return;}
+  if(!raw2){status.innerHTML='<span style="color:#ff6b6b">\u26a0 \u8bf7\u5148\u586b\u5165\u88682\u6570\u636e</span>';return;}
+  status.innerHTML='<span style="color:var(--spark)">\u26a1 \u5206\u6790\u4e2d...</span>';
+  const t1=parseCSV(raw1), t2=parseCSV(raw2);
+  document.getElementById('t1status').innerHTML='<span style="color:var(--accent3)">\u2713 '+t1.length+' \u884c\u5df2\u89e3\u6790</span>';
+  document.getElementById('t2status').innerHTML='<span style="color:var(--accent3)">\u2713 '+t2.length+' \u884c\u5df2\u89e3\u6790</span>';
+
+  const now=new Date().toISOString().slice(11,23);
+  const ms=(Math.random()*0.8+0.2).toFixed(3);
+  document.getElementById('sqlLog').innerHTML=[
+    '<span style="color:var(--spark)">['+now+']</span> SparkSession initialized',
+    '<span style="color:var(--spark)">['+now+']</span> <span style="color:var(--accent4)">CREATE</span> TEMP VIEW ods_ad_click_log ('+t1.length+' rows)',
+    '<span style="color:var(--spark)">['+now+']</span> <span style="color:var(--accent4)">CREATE</span> TEMP VIEW dim_ad_info ('+t2.length+' rows)',
+    '<span style="color:var(--spark)">['+now+']</span> DWD: WHERE event_type != SWIPE, is_valid=(event_type=CLICK)',
+    '<span style="color:var(--spark)">['+now+']</span> DWS: JOIN dim_ad_info ON ad_id, GROUP BY ad_id,category',
+    '<span style="color:var(--spark)">['+now+']</span> ADS: RANK() OVER ORDER BY ctr DESC',
+    '<span style="color:var(--accent3)">['+now+'] \u2713 \u6267\u884c\u5b8c\u6210 \u00b7 \u8017\u65f6 '+ms+'s</span>',
+  ].join('<br>');
+
+  const dimMap={};
+  t2.forEach(r=>{dimMap[r.ad_id]=r;});
+
+  const adStats={};
+  t1.forEach(r=>{
+    if(!adStats[r.ad_id])adStats[r.ad_id]={clicks:0,imps:0};
+    if(r.event_type==='CLICK')adStats[r.ad_id].clicks++;
+    if(r.event_type==='IMP')adStats[r.ad_id].imps++;
+  });
+
+  const devStats={};
+  t1.forEach(r=>{
+    const d=r.device||'unknown';
+    if(!devStats[d])devStats[d]={clicks:0,imps:0};
+    if(r.event_type==='CLICK')devStats[d].clicks++;
+    if(r.event_type==='IMP')devStats[d].imps++;
+  });
+
+  const catStats={};
+  t1.forEach(r=>{
+    const dim=dimMap[r.ad_id];if(!dim)return;
+    const cat=dim.category;
+    if(!catStats[cat])catStats[cat]={clicks:0,imps:0,budget:0,aids:new Set()};
+    if(r.event_type==='CLICK')catStats[cat].clicks++;
+    if(r.event_type==='IMP')catStats[cat].imps++;
+    catStats[cat].aids.add(r.ad_id);
+  });
+  Object.values(catStats).forEach(s=>{s.aids.forEach(aid=>{if(dimMap[aid])s.budget+=parseInt(dimMap[aid].budget)||0;});});
+
+  function cc(v){return v>0.5?'#69db7c':v>0.25?'var(--spark)':'#ff6b6b';}
+  function ctrStr(clicks,imps){const v=imps>0?clicks/imps:1;return {pct:(v*100).toFixed(1)+'%',v};}
+
+  // CTR table
+  const cb=document.getElementById('ctrTableBody');cb.innerHTML='';
+  Object.entries(adStats).sort((a,b)=>(b[1].clicks/(b[1].imps||1))-(a[1].clicks/(a[1].imps||1))).forEach(([id,s])=>{
+    const {pct,v}=ctrStr(s.clicks,s.imps);const dim=dimMap[id]||{};
+    const tr=document.createElement('tr');
+    tr.innerHTML='<td style="padding:4px 6px;color:var(--kafka)">'+id+'</td><td style="padding:4px 6px;color:var(--text)">'+(dim.ad_name||'\u2014')+'</td><td style="padding:4px 6px;text-align:right;color:var(--data)">'+s.clicks+'</td><td style="padding:4px 6px;text-align:right;color:var(--text-dim)">'+s.imps+'</td><td style="padding:4px 6px;text-align:right;font-weight:700;color:'+cc(v)+'">'+pct+'</td>';
+    cb.appendChild(tr);
+  });
+
+  // Cat table
+  const catb=document.getElementById('catTableBody');catb.innerHTML='';
+  Object.entries(catStats).sort((a,b)=>(b[1].clicks/(b[1].imps||1))-(a[1].clicks/(a[1].imps||1))).forEach(([cat,s])=>{
+    const {pct,v}=ctrStr(s.clicks,s.imps);
+    const tr=document.createElement('tr');
+    tr.innerHTML='<td style="padding:4px 6px;color:var(--accent4)">'+cat+'</td><td style="padding:4px 6px;text-align:right;color:var(--data)">'+s.clicks+'</td><td style="padding:4px 6px;text-align:right;color:var(--text-dim)">'+s.imps+'</td><td style="padding:4px 6px;text-align:right;font-weight:700;color:'+cc(v)+'">'+pct+'</td><td style="padding:4px 6px;text-align:right;color:var(--spark)">\u00a5'+s.budget.toLocaleString()+'</td>';
+    catb.appendChild(tr);
+  });
+
+  // Dev table
+  const db=document.getElementById('devTableBody');db.innerHTML='';
+  const de={mobile:'\ud83d\udcf1',desktop:'\ud83d\udcbb',tablet:'\ud83d\udce0'};
+  Object.entries(devStats).sort((a,b)=>b[1].clicks-a[1].clicks).forEach(([dev,s])=>{
+    const {pct,v}=ctrStr(s.clicks,s.imps);
+    const tr=document.createElement('tr');
+    tr.innerHTML='<td style="padding:4px 6px;color:var(--data)">'+(de[dev]||'')+' '+dev+'</td><td style="padding:4px 6px;text-align:right;color:var(--kafka)">'+s.clicks+'</td><td style="padding:4px 6px;text-align:right;color:var(--text-dim)">'+s.imps+'</td><td style="padding:4px 6px;text-align:right;color:var(--accent3)">'+pct+'</td>';
+    db.appendChild(tr);
+  });
+
+  // ADS table
+  const ab=document.getElementById('adsTableBody');ab.innerHTML='';
+  const rc=['var(--spark)','#c0c0c0','#cd7f32','var(--text-dim)','var(--text-dim)'];
+  Object.entries(adStats).map(([id,s])=>{
+    const dim=dimMap[id]||{};const ctrv=s.imps>0?s.clicks/s.imps:1;
+    const util=Math.min(s.clicks/(parseInt(dim.budget)||1)*10000*100,100).toFixed(1)+'%';
+    return{id,dim,s,ctrv,util};
+  }).sort((a,b)=>b.ctrv-a.ctrv).forEach((r,i)=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML='<td style="padding:4px 6px;font-weight:700;color:'+(rc[i]||'var(--text-dim)')+'">#'+(i+1)+'</td><td style="padding:4px 6px;color:var(--text)">'+(r.dim.ad_name||r.id)+'</td><td style="padding:4px 6px;color:var(--accent4)">'+(r.dim.category||'\u2014')+'</td><td style="padding:4px 6px;text-align:right;font-weight:700;color:'+cc(r.ctrv)+'">'+(r.ctrv*100).toFixed(1)+'%</td><td style="padding:4px 6px;text-align:right;color:var(--accent3)">'+r.util+'</td>';
+    ab.appendChild(tr);
+  });
+
+  document.getElementById('analysisResults').style.display='block';
+  status.innerHTML='<span style="color:var(--accent3)">\u2713 \u5206\u6790\u5b8c\u6210 \u00b7 '+t1.length+'\u884c \u00d7 '+t2.length+'\u884c JOIN\u6210\u529f</span>';
+
+  dwCounts.ods+=t1.length;
+  dwCounts.dwd+=t1.filter(r=>r.event_type!=='SWIPE').length;
+  dwCounts.dws+=Object.keys(adStats).length;
+  dwCounts.ads+=Object.keys(adStats).length;
+  ['ods','dwd','dws','ads'].forEach(k=>{
+    const el=document.getElementById(k+'Count');
+    if(el)el.textContent=dwCounts[k];
+  });
+}
+
+</script>
+
+<!-- ── Data Table Modal ─────────────────────────────────────────────────── -->
+<div id="dataModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:2000;overflow-y:auto;padding:20px;">
+  <div style="max-width:900px;margin:0 auto;background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;">
+
+    <!-- Modal header -->
+    <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:linear-gradient(90deg,rgba(191,95,255,0.08),transparent);">
+      <div>
+        <div style="font-family:'Orbitron',monospace;font-size:13px;font-weight:900;color:var(--accent4);letter-spacing:2px;">📊 数据表导入 · TABLE IMPORT</div>
+        <div style="font-size:10px;color:var(--text-dim);font-family:'Noto Sans SC',sans-serif;margin-top:3px;">粘贴 CSV 数据 → 自动解析 → JOIN 分析 → 更新数仓</div>
+      </div>
+      <button onclick="closeDataModal()" style="background:none;border:1px solid var(--border);color:var(--text-dim);font-size:14px;width:30px;height:30px;border-radius:6px;cursor:pointer;">✕</button>
+    </div>
+
+    <!-- Two table inputs -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;border-bottom:1px solid var(--border);">
+
+      <!-- Table 1: click log -->
+      <div style="padding:16px 18px;border-right:1px solid var(--border);">
+        <div style="font-family:'Orbitron',monospace;font-size:10px;color:#74c0fc;margin-bottom:4px;letter-spacing:1px;">表1 · ODS_AD_CLICK_LOG</div>
+        <div style="font-size:9px;color:var(--text-dim);font-family:'Noto Sans SC',sans-serif;margin-bottom:8px;">字段：user_id, ad_id, event_type, device, ts</div>
+        <textarea id="table1Input" placeholder="粘贴 CSV（含表头）&#10;例：&#10;user_id,ad_id,event_type,device,ts&#10;U0001,AD_003,CLICK,mobile,1746364800000"
+          style="width:100%;height:160px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--accent3);font-family:'Space Mono',monospace;font-size:10px;padding:8px;resize:vertical;outline:none;line-height:1.6;"></textarea>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <button onclick="fillSample1()" style="font-size:10px;padding:5px 12px;border-radius:5px;border:1px solid #74c0fc;background:rgba(116,192,252,0.08);color:#74c0fc;cursor:pointer;font-family:'Noto Sans SC',sans-serif;">填入示例数据</button>
+          <div id="t1status" style="font-size:10px;color:var(--text-dim);font-family:'Noto Sans SC',sans-serif;display:flex;align-items:center;"></div>
+        </div>
+      </div>
+
+      <!-- Table 2: ad info -->
+      <div style="padding:16px 18px;">
+        <div style="font-family:'Orbitron',monospace;font-size:10px;color:#ffa94d;margin-bottom:4px;letter-spacing:1px;">表2 · DIM_AD_INFO</div>
+        <div style="font-size:9px;color:var(--text-dim);font-family:'Noto Sans SC',sans-serif;margin-bottom:8px;">字段：ad_id, ad_name, category, budget</div>
+        <textarea id="table2Input" placeholder="粘贴 CSV（含表头）&#10;例：&#10;ad_id,ad_name,category,budget&#10;AD_003,限时特惠,电商,50000"
+          style="width:100%;height:160px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:#ffa94d;font-family:'Space Mono',monospace;font-size:10px;padding:8px;resize:vertical;outline:none;line-height:1.6;"></textarea>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <button onclick="fillSample2()" style="font-size:10px;padding:5px 12px;border-radius:5px;border:1px solid #ffa94d;background:rgba(255,169,77,0.08);color:#ffa94d;cursor:pointer;font-family:'Noto Sans SC',sans-serif;">填入示例数据</button>
+          <div id="t2status" style="font-size:10px;color:var(--text-dim);font-family:'Noto Sans SC',sans-serif;display:flex;align-items:center;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Analyze button -->
+    <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;">
+      <button onclick="runAnalysis()" id="analyzeBtn"
+        style="font-family:'Orbitron',monospace;font-size:12px;font-weight:700;padding:10px 24px;border-radius:7px;border:2px solid var(--accent4);background:rgba(191,95,255,0.1);color:var(--accent4);cursor:pointer;letter-spacing:1px;transition:all 0.2s;">
+        ⚡ 运行分析（Spark SQL 模拟）
+      </button>
+      <div id="analyzeStatus" style="font-size:10px;color:var(--text-dim);font-family:'Noto Sans SC',sans-serif;"></div>
+    </div>
+
+    <!-- Results area -->
+    <div id="analysisResults" style="padding:16px 20px;display:none;">
+
+      <!-- Spark SQL log -->
+      <div style="margin-bottom:14px;">
+        <div style="font-family:'Orbitron',monospace;font-size:9px;color:var(--spark);letter-spacing:1px;margin-bottom:6px;">🔥 SPARK SQL EXECUTION LOG</div>
+        <div id="sqlLog" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-family:'Space Mono',monospace;font-size:9px;line-height:1.8;color:var(--text-dim);max-height:100px;overflow-y:auto;"></div>
+      </div>
+
+      <!-- Result tables grid -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+
+        <!-- CTR by ad -->
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+          <div style="padding:7px 12px;background:rgba(255,107,53,0.1);font-family:'Orbitron',monospace;font-size:9px;color:var(--kafka);letter-spacing:1px;">广告 CTR 排行（DWS聚合）</div>
+          <div style="padding:8px;">
+            <table id="ctrTable" style="width:100%;border-collapse:collapse;font-size:9px;font-family:'Space Mono',monospace;">
+              <thead><tr>
+                <th style="text-align:left;padding:3px 6px;color:var(--text-dim);border-bottom:1px solid var(--border);">ad_id</th>
+                <th style="text-align:left;padding:3px 6px;color:var(--text-dim);border-bottom:1px solid var(--border);">ad_name</th>
+                <th style="text-align:right;padding:3px 6px;color:var(--text-dim);border-bottom:1px solid var(--border);">pv</th>
+                <th style="text-align:right;padding:3px 6px;color:var(--text-dim);border-bottom:1px solid var(--border);">imp</th>
+                <th style="text-align:right;padding:3px 6px;color:var(--text-dim);border-bottom:1px solid var(--border);">CTR</th>
+              </tr></thead>
+              <tbody id="ctrTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- CTR by category -->
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+          <div style="padding:7px 12px;background:rgba(191,95,255,0.1);font-family:'Orbitron',monospace;font-size:9px;color:var(--accent4);letter-spacing:1px;">品类 CTR 分析（JOIN结果）</div>
+          <div style="padding:8px;">
+            <table id="catTable" style="width:100%;border-collapse:collapse;font-size:9px;font-family:'Space Mono',monospace;">
+              <thead><tr>
+                <th style="text-align:left;padding:3px 6px;color:var(--text-dim);border-bottom:1px solid var(--border);">category</th>
+                <th style="text-align:right;padding:3px 6px;color:var(--text-dim);border-bottom:1px solid var(--border);">总pv</th>
+                <th style="text-align:right;padding:3px 6px;color:var(--text-dim);border-bottom:1px solid var(--border);">总imp</th>
+                <th style="text-align:right;padding:3px 6px;color:var(--text-dim);border-bottom:1px solid var(--border);">CTR</th>
+                <th style="text-align:right;padding:3px 6px;color:var(--text-dim);border-bottom:1px solid var(--border);">预算</th>
+              </tr></thead>
+              <tbody id="catTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Device breakdown from table -->
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+          <div style="padding:7px 12px;background:rgba(0,212,255,0.08);font-family:'Orbitron',monospace;font-size:9px;color:var(--data);letter-spacing:1px;">设备分布（DWD明细）</div>
+          <div style="padding:8px;">
+            <table id="devTable" style="width:100%;border-collapse:collapse;font-size:9px;font-family:'Space Mono',monospace;">
+              <thead><tr>
+                <th style="text-align:left;padding:3px 6px;color:var(--text-dim);border-bottom:1px solid var(--border);">device</th>
+                <th style="text-align:right;padding:3px 6px;color:var(--text-dim);border-bottom:1px solid var(--border);">clicks</th>
+                <th style="text-align:right;padding:3px 6px;color:var(--text-dim);border-bottom:1px solid var(--border);">imps</th>
+                <th style="text-align:right;padding:3px 6px;color:var(--text-dim);border-bottom:1px solid var(--border);">CTR</th>
+              </tr></thead>
+              <tbody id="devTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ADS report: top ads -->
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+          <div style="padding:7px 12px;background:rgba(57,255,20,0.06);font-family:'Orbitron',monospace;font-size:9px;color:var(--accent3);letter-spacing:1px;">ADS 报表层（最终输出）</div>
+          <div style="padding:8px;">
+            <table id="adsTable" style="width:100%;border-collapse:collapse;font-size:9px;font-family:'Space Mono',monospace;">
+              <thead><tr>
+                <th style="text-align:left;padding:3px 6px;color:var(--text-dim);border-bottom:1px solid var(--border);">rank</th>
+                <th style="text-align:left;padding:3px 6px;color:var(--text-dim);border-bottom:1px solid var(--border);">ad_name</th>
+                <th style="text-align:left;padding:3px 6px;color:var(--text-dim);border-bottom:1px solid var(--border);">category</th>
+                <th style="text-align:right;padding:3px 6px;color:var(--text-dim);border-bottom:1px solid var(--border);">CTR</th>
+                <th style="text-align:right;padding:3px 6px;color:var(--text-dim);border-bottom:1px solid var(--border);">预算利用率</th>
+              </tr></thead>
+              <tbody id="adsTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+      </div><!-- /grid -->
+    </div><!-- /results -->
+  </div>
+</div>
+
+</body>
+</html>
